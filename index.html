@@ -110,6 +110,7 @@
   .face { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 22px 18px; }
   .q { font-size: 28px; font-weight: 700; line-height: 1.35; word-break: break-word; }
   .q.ja { font-size: 22px; }
+  .q.long { font-size: 21px; font-weight: 600; }
   .pos { font-size: 13px; color: var(--muted); margin-top: 4px; }
   .say { border: 0; background: var(--accent-soft); color: var(--accent); border-radius: 999px; min-height: 36px; padding: 4px 12px; font-size: 14px; }
   .a { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 14px; display: flex; flex-direction: column; gap: 10px; }
@@ -367,7 +368,7 @@ function applyPacks(files) {
   CARDS.clear();
   const index = JSON.parse(files['packs/index.json'] || '{"subjects":[]}');
   for (const s of index.subjects || []) {
-    const subject = { id: s.id, title: s.title, decks: [] };
+    const subject = { id: s.id, title: s.title, decks: [], direction: s.direction || null, speak: s.speak || null, badge: s.badge || null };
     for (const f of s.files || []) {
       const text = files['packs/' + f];
       if (!text) continue;
@@ -487,7 +488,11 @@ function recompute() {
   STATES = computeStates(evs);
   EXCLUDED = computeExcluded(evs);
 }
-const stateOf = (cardId, dir = settings.direction) => STATES.get(cardId + '|' + dir);
+// 練習の向き：教材が向きを決めている科目（瞬間英作文はいつも日→英）はそれを使い、ほかは設定の向き
+function dirOf(subject) { return (subject && subject.direction) || settings.direction; }
+function subjectOf(card) { return card ? SUBJECTS.find((x) => x.id === card.subject) : null; }
+function cardDir(cardId) { return dirOf(subjectOf(CARDS.get(cardId))); }
+const stateOf = (cardId, dir = cardDir(cardId)) => STATES.get(cardId + '|' + dir);
 function nextLabel(st, g) {
   const day = dayKey();
   const n = applyGrade(st || newState(), g, day);
@@ -506,7 +511,7 @@ function subjectCards(subject) {
 }
 function todayInfo(subject) {
   const day = dayKey();
-  const dir = settings.direction;
+  const dir = dirOf(subject);
   const due = [];
   let carried = 0;
   let introduced = 0;
@@ -543,13 +548,13 @@ function decksFrom(subject) {
 }
 // 今進めているコース：選んだコースから順に見て、まだ見ていないカードが残っている最初のコース
 function currentDeck(subject) {
-  const dir = settings.direction;
+  const dir = dirOf(subject);
   for (const d of decksFrom(subject)) for (const s of d.sets) for (const id of s.cards) if (!stateOf(id, dir) && CARDS.has(id) && !EXCLUDED.has(id)) return d;
   return activeDeck(subject);
 }
 // 次の新しいカード（skip に入っているカードは除く）
 function nextFresh(subject, skip) {
-  const dir = settings.direction;
+  const dir = dirOf(subject);
   for (const d of decksFrom(subject)) for (const s of d.sets) for (const id of s.cards) {
     if (!stateOf(id, dir) && CARDS.has(id) && !EXCLUDED.has(id) && !skip.has(id)) return id;
   }
@@ -701,7 +706,7 @@ function renderHome() {
     const total = t.due.length + t.fresh.length;
     nodes.push(h('section', { class: 'card', 'data-subject': subject.id },
       h('div', { class: 'row' }, h('h2', null, subject.title), h('span', { class: 'sp' }),
-        h('span', { class: 'badge' }, settings.direction === 'p' ? '日→英（言える）' : '英→日（わかる）')),
+        h('span', { class: 'badge' }, subject.badge || (subject.direction ? (subject.direction === 'p' ? '日→英（いつも）' : '英→日（いつも）') : dirOf(subject) === 'p' ? '日→英（言える）' : '英→日（わかる）'))),
       h('div', { class: 'stat' },
         h('div', null, h('b', { class: 'n-due' }, t.due.length), h('span', null, '今日の復習' + (t.carried ? `（持ち越し ${t.carried}）` : ''))),
         h('div', null, h('b', { class: 'n-new' }, t.fresh.length), h('span', null, `新しいカード（1日 ${settings.newPerDay}枚まで）`))),
@@ -761,7 +766,7 @@ const SORT_PAGE = 50;
 let sortUndo = null; // 直前にまとめて外した記録 { deck, ids: [記録の id] }
 function renderSort(subject, deck) {
   setHeader('知っている語を外す', () => go({ type: 'deck', subject: subject.id, deck: deck.id }));
-  const dir = settings.direction;
+  const dir = dirOf(subject);
   const ids = [];
   const seen = new Set();
   let remaining = 0;
@@ -870,11 +875,14 @@ function renderSession() {
   const card = currentCard();
   if (!card) { go({ type: 'done' }); return; }
   setHeader(session.title, () => endSession());
-  const dir = settings.direction;
+  const dir = cardDir(card.id);
   const st = stateOf(card.id, dir);
+  const subj = subjectOf(card);
+  // 読み上げる科目（英会話）：カードが表に出たとき、相手の言葉を 1 回読み上げる
+  if (subj && subj.speak && !session.revealed && session.spoken !== card.id) { session.spoken = card.id; speak(card.term); }
   const front = dir === 'p'
     ? [h('div', { class: 'q ja' }, card.ja || '（意味なし）'), card.pos ? h('div', { class: 'pos' }, card.pos) : null]
-    : [h('div', { class: 'row' }, h('div', { class: 'q sp' }, card.term), h('button', { class: 'say', type: 'button', onclick: () => speak(card.term) }, '▶ 読む')),
+    : [h('div', { class: 'row' }, h('div', { class: 'q sp' + (card.term.length > 40 ? ' long' : '') }, card.term), h('button', { class: 'say', type: 'button', onclick: () => speak(card.term) }, '▶ 読む')),
        card.pos ? h('div', { class: 'pos' }, card.pos) : null];
   const back = session.revealed ? h('div', { class: 'a' },
     dir === 'p' ? h('div', { class: 'row' }, h('div', { class: 'term sp' }, card.term), h('button', { class: 'say', type: 'button', onclick: () => speak(card.term) }, '▶ 読む'))
@@ -902,12 +910,14 @@ function reveal() {
   session.revealed = true;
   renderSession();
   const card = currentCard();
-  if (card && settings.direction === 'p') speak(card.term);
+  const subj = card && subjectOf(card);
+  if (subj && subj.speak) speak(card.ex || card.term);     // 英会話：答えを見たら返事の例を読み上げる
+  else if (card && cardDir(card.id) === 'p') speak(card.term);
 }
 function grade(g) {
   const card = currentCard();
   if (!card || !session.revealed) return;
-  const e = { id: uid(), at: eventTime(), c: card.id, d: settings.direction, g };
+  const e = { id: uid(), at: eventTime(), c: card.id, d: cardDir(card.id), g };
   addEvents([e]);
   session.history.push({ id: card.id, eventId: e.id, from: [...session.queue], kind: 'g' });
   session.queue.shift();
@@ -992,7 +1002,7 @@ function openSettings() {
     h('h2', { id: 'sheetTitle' }, '設定'),
     h('div', { class: 'set-row' }, h('label', { for: 'newPerDay' }, '1日の新しいカード'), num),
     h('div', { class: 'set-row' }, h('label', { for: 'direction' }, '練習の向き'), dir),
-    h('p', { class: 'note' }, '向きごとに記録を分けています。英→日は「見てわかる」、日→英は「自分で言える」かを確かめます。'),
+    h('p', { class: 'note' }, '向きごとに記録を分けています。英→日は「見てわかる」、日→英は「自分で言える」かを確かめます。瞬間英作文は、この設定にかかわらずいつも日→英で出します。英会話は、いつも相手の英語を表に出して読み上げます（答えを見ると返事の例も読み上げます）。'),
     h('div', { class: 'set-row' }, h('label', { for: 'rate' }, '読み上げの速さ'), rate),
     h('div', { class: 'set-row' }, h('span', { class: 'sp' }, `もう出さないカード ${[...EXCLUDED].filter((id) => CARDS.has(id)).length}枚`),
       h('button', { type: 'button', class: 'to-excluded', onclick: () => { closeSettings(); go({ type: 'excluded' }); } }, '一覧')),
@@ -1112,7 +1122,7 @@ document.addEventListener('keydown', (e) => {
   if (!session.revealed && (e.key === ' ' || e.key === 'Enter')) { e.preventDefault(); reveal(); return; }
   if (session.revealed && /^[1-4]$/.test(e.key)) { e.preventDefault(); grade(Number(e.key)); return; }
   if (session.revealed && (e.key === ' ' || e.key === 'Enter')) { e.preventDefault(); grade(3); return; }
-  if (e.key === 's' || e.key === 'S') { const c = currentCard(); if (c) speak(settings.direction === 'p' && !session.revealed ? '' : c.term); return; }
+  if (e.key === 's' || e.key === 'S') { const c = currentCard(); if (c) speak(cardDir(c.id) === 'p' && !session.revealed ? '' : c.term); return; }
   if (e.key === 'u' || e.key === 'U' || e.key === 'Backspace') { e.preventDefault(); undo(); return; }
   if (e.key === 'x' || e.key === 'X') { e.preventDefault(); exclude(); return; }
   if (e.key === 'Escape') endSession();
