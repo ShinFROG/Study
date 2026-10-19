@@ -1,0 +1,966 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#f6f6f4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#151514" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<!-- 外部スクリプトは一切読み込まない。通信先は GitHub API のみに制限する。
+     この画面には教材も記録も入っていない。どちらもログインしたあと、非公開のデータ用リポジトリから読む -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src https://api.github.com; img-src 'self' data:; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'">
+<title></title>
+<style>
+  /* ======================= 色 ======================= */
+  :root {
+    color-scheme: light;
+    --bg: #f6f6f4; --card: #ffffff; --sunk: #ecebe8;
+    --text: #1b1b19; --muted: #6b6a66; --faint: #a3a29c; --line: #e3e2de;
+    --danger: #c63b3a; --ok: #1f9d55;
+    --accent: #2a78d6; --accent-ink: #ffffff;
+    --g1: #c2410c; --g2: #a16207; --g3: #15803d; --g4: #1d4ed8;
+    --shadow: 0 12px 40px rgba(0, 0, 0, .16);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --bg: #151514; --card: #1f1f1d; --sunk: #0f0f0e;
+      --text: #ecebe6; --muted: #a9a8a0; --faint: #74736d; --line: #33322e;
+      --danger: #ef6b6a; --ok: #3ccf7a;
+      --accent: #5598e7; --accent-ink: #0b0b0b;
+      --g1: #fb923c; --g2: #facc15; --g3: #4ade80; --g4: #60a5fa;
+      --shadow: 0 12px 40px rgba(0, 0, 0, .55);
+    }
+  }
+  :root { --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent); }
+
+  /* ======================= 基本 ======================= */
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg); color: var(--text); -webkit-text-size-adjust: 100%;
+    font: 16px/1.6 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  }
+  button, input, select { font: inherit; color: inherit; }
+  /* iOS は 16px 未満の入力欄にフォーカスすると拡大するので 16px にそろえる */
+  input[type=text], input[type=password], input[type=number], select {
+    width: 100%; padding: 10px 12px; font-size: 16px; background: var(--card);
+    border: 1px solid var(--line); border-radius: 10px; outline: none; min-height: 44px;
+  }
+  input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  button { cursor: pointer; border: 1px solid var(--line); background: var(--card); border-radius: 12px; padding: 8px 14px; min-height: 44px; }
+  button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  [hidden] { display: none !important; }
+  .primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 700; }
+  .icon-btn { border: 0; background: transparent; padding: 8px; min-width: 44px; color: var(--muted); font-size: 20px; line-height: 1; }
+  .icon-btn:hover { background: var(--accent-soft); color: var(--text); }
+  .muted { color: var(--muted); }
+  .sp { flex: 1; }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+  /* ======================= 初回設定（文字なし） ======================= */
+  #setup { display: flex; flex-direction: column; gap: 12px; max-width: 360px; margin: 18vh auto 0; padding: 0 16px; }
+  #setup input.bad { border-color: var(--danger); outline: 2px solid var(--danger); outline-offset: -1px; }
+  #setup.busy { opacity: .5; pointer-events: none; }
+
+  /* ======================= 枠組み ======================= */
+  #app { min-height: 100dvh; display: flex; flex-direction: column; }
+  .top {
+    position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 4px;
+    padding: max(8px, env(safe-area-inset-top)) 12px 8px; background: color-mix(in srgb, var(--bg) 92%, transparent);
+    backdrop-filter: blur(10px); border-bottom: 1px solid var(--line);
+  }
+  .top h1 { font-size: 18px; margin: 0 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sync { font-size: 12px; color: var(--faint); white-space: nowrap; }
+  .sync.offline, .sync.error { color: var(--danger); }
+  .sync.dirty, .sync.saving { color: var(--muted); }
+  #content { width: 100%; max-width: 760px; margin: 0 auto; padding: 16px 16px calc(32px + env(safe-area-inset-bottom)); flex: 1; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; margin-bottom: 14px; }
+  .card h2 { font-size: 17px; margin: 0 0 6px; }
+  .row { display: flex; align-items: center; gap: 10px; }
+  .stat { display: flex; gap: 22px; flex-wrap: wrap; margin: 6px 0 14px; }
+  .stat b { display: block; font-size: 30px; line-height: 1.2; }
+  .stat span { font-size: 13px; color: var(--muted); }
+  .btn-row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .btn-row > button { flex: 1 1 140px; }
+  .list { display: flex; flex-direction: column; gap: 8px; }
+  .item {
+    display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px;
+  }
+  .item .t { font-weight: 700; }
+  .item .s { font-size: 13px; color: var(--muted); }
+  .item .n { font-size: 13px; color: var(--muted); white-space: nowrap; }
+  .bar { height: 6px; border-radius: 3px; background: var(--sunk); overflow: hidden; margin-top: 6px; }
+  .bar i { display: block; height: 100%; background: var(--accent); }
+  .badge { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
+  .note { font-size: 13px; color: var(--muted); }
+  .empty { text-align: center; color: var(--muted); padding: 32px 8px; }
+
+  /* ======================= 復習 ======================= */
+  .session { display: flex; flex-direction: column; gap: 12px; padding-bottom: 150px; }
+  .progress { font-size: 13px; color: var(--muted); display: flex; justify-content: space-between; }
+  .face { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 22px 18px; }
+  .q { font-size: 28px; font-weight: 700; line-height: 1.35; word-break: break-word; }
+  .q.ja { font-size: 22px; }
+  .pos { font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .say { border: 0; background: var(--accent-soft); color: var(--accent); border-radius: 999px; min-height: 36px; padding: 4px 12px; font-size: 14px; }
+  .a { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .a .ja { font-size: 20px; font-weight: 700; }
+  .a .term { font-size: 20px; font-weight: 700; }
+  .a .usage { font-size: 15px; }
+  .ex { background: var(--sunk); border-radius: 12px; padding: 10px 12px; }
+  .ex .en { font-size: 17px; }
+  .ex .tr { font-size: 14px; color: var(--muted); }
+  .col { display: flex; gap: 6px; flex-wrap: wrap; }
+  .col span { font-size: 14px; border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; }
+  .dock {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    background: color-mix(in srgb, var(--bg) 94%, transparent); backdrop-filter: blur(10px); border-top: 1px solid var(--line);
+  }
+  .dock .inner { max-width: 760px; margin: 0 auto; display: flex; gap: 8px; }
+  /* スマホ幅でも「もう一度」が折れないよう、横の余白を詰めて文字を少しだけ縮める */
+  .dock button { flex: 1; min-width: 0; min-height: 56px; padding: 6px 2px; font-weight: 700; font-size: clamp(14px, 4.2vw, 16px); white-space: nowrap; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.2; }
+  .dock button small { font-weight: 400; font-size: 12px; color: var(--muted); }
+  .g1 { color: var(--g1); } .g2 { color: var(--g2); } .g3 { color: var(--g3); } .g4 { color: var(--g4); }
+  .undo { border: 0; background: none; color: var(--muted); font-size: 14px; min-height: 36px; padding: 4px 8px; }
+
+  /* ======================= 設定・お知らせ ======================= */
+  #backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, .35); z-index: 20; }
+  #sheet {
+    position: fixed; z-index: 21; left: 50%; transform: translateX(-50%); bottom: 0; width: min(560px, 100%);
+    background: var(--card); border-radius: 18px 18px 0 0; padding: 18px 18px calc(18px + env(safe-area-inset-bottom)); box-shadow: var(--shadow);
+    max-height: 90dvh; overflow: auto;
+  }
+  #sheet h2 { margin: 0 0 12px; font-size: 18px; }
+  .set-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .set-row label { flex: 1; }
+  .set-row input[type=number] { width: 96px; }
+  .set-row select { width: auto; }
+  #toast {
+    position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(96px + env(safe-area-inset-bottom)); z-index: 30;
+    background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 12px; font-size: 14px; max-width: calc(100% - 32px);
+  }
+  @media (min-width: 900px) {
+    .session { padding-bottom: 24px; }
+    .dock { position: static; background: none; border: 0; backdrop-filter: none; padding: 0; }
+  }
+</style>
+</head>
+<body>
+<!-- 初回設定: 上が接続先（owner/repo）、下がトークン。どちらかの欄で Enter を押すと接続する。
+     ブラウザのパスワード保存に入るよう、通常のログインフォームの形にしてある。画面には文字を出さない -->
+<form id="setup" hidden method="post" action="#">
+  <input id="repo" name="username" type="text" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false">
+  <input id="token" name="password" type="password" autocomplete="current-password" spellcheck="false" enterkeyhint="go">
+  <button type="submit" hidden tabindex="-1" aria-hidden="true"></button>
+</form>
+
+<div id="app" hidden>
+  <header class="top">
+    <button id="backBtn" class="icon-btn" type="button" hidden aria-label="戻る">‹</button>
+    <h1 id="title"></h1>
+    <span class="sp"></span>
+    <span id="sync" class="sync" role="status"></span>
+    <button id="retryBtn" class="icon-btn" type="button" hidden aria-label="再試行">↻</button>
+    <button id="settingsBtn" class="icon-btn" type="button" aria-label="設定">⚙</button>
+  </header>
+  <main id="content"></main>
+</div>
+<div id="backdrop" hidden></div>
+<div id="sheet" hidden role="dialog" aria-modal="true" aria-labelledby="sheetTitle"></div>
+<div id="toast" hidden role="status"></div>
+
+<script>
+'use strict';
+/* =========================================================================
+ * 基本
+ * ========================================================================= */
+const API = 'https://api.github.com';
+const KEY = {
+  token: 'study.token', repo: 'study.repo', pending: 'study.pending', settings: 'study.settings',
+  files: 'study.files',
+};
+const DAY_START = 4; // 朝 4 時までは前の日として数える（夜ふかしの学習を前日に入れる）
+const STEPS = [1, 3, 7, 14, 30, 60, 120, 240]; // 復習の間隔（日）
+const LEARNED_STEP = 3; // 14 日以上あけても思い出せたら「定着」
+const $ = (id) => document.getElementById(id);
+
+// localStorage は使えない環境（プライベートモード等）もあるので必ず try で包む
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+  del(k) { try { localStorage.removeItem(k); } catch {} },
+};
+const loadJSON = (k, def) => { try { const v = store.get(k); return v ? JSON.parse(v) : def; } catch { return def; } };
+const saveJSON = (k, v) => store.set(k, JSON.stringify(v));
+
+// 端末の IndexedDB：ログイン情報（kv）と、読んだ教材・記録のファイル（files: path → {sha, text}）
+const idb = (() => {
+  const open = () => new Promise((ok, ng) => {
+    const r = indexedDB.open('study', 1);
+    r.onupgradeneeded = () => { r.result.createObjectStore('kv'); r.result.createObjectStore('files'); };
+    r.onsuccess = () => ok(r.result);
+    r.onerror = () => ng(r.error);
+  });
+  const run = (storeName, mode, fn) => open().then((db) => new Promise((ok, ng) => {
+    const tx = db.transaction(storeName, mode);
+    const req = fn(tx.objectStore(storeName));
+    tx.oncomplete = () => { db.close(); ok(req.result); };
+    tx.onerror = tx.onabort = () => { db.close(); ng(tx.error); };
+  }));
+  return {
+    get: (s, k) => run(s, 'readonly', (o) => o.get(k)).catch(() => null),
+    set: (s, k, v) => run(s, 'readwrite', (o) => o.put(v, k)).catch(() => {}),
+    del: (s, k) => run(s, 'readwrite', (o) => o.delete(k)).catch(() => {}),
+    clear: (s) => run(s, 'readwrite', (o) => o.clear()).catch(() => {}),
+  };
+})();
+
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const nowIso = () => new Date().toISOString();
+// 採点の時刻。この端末で作った記録は作った順に必ず進める（同じミリ秒に重なっても順番がぶれない）
+let lastEventMs = 0;
+const eventTime = () => new Date((lastEventMs = Math.max(Date.now(), lastEventMs + 1))).toISOString();
+const pad = (n) => String(n).padStart(2, '0');
+const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+// 学習の日付（朝 4 時切り替え）
+function dayKey(at) {
+  const d = at ? new Date(at) : new Date();
+  return ymd(new Date(d.getTime() - DAY_START * 3600 * 1000));
+}
+function addDays(day, n) {
+  const [y, m, d] = day.split('-').map(Number);
+  return ymd(new Date(y, m - 1, d + n));
+}
+function daysBetween(a, b) {
+  const [y1, m1, d1] = a.split('-').map(Number);
+  const [y2, m2, d2] = b.split('-').map(Number);
+  return Math.round((new Date(y2, m2 - 1, d2) - new Date(y1, m1 - 1, d1)) / 86400000);
+}
+
+// DOM を組み立てる小さな関数。文字列は必ずテキストとして入る（HTML として解釈されない）
+function h(tag, props, ...kids) {
+  const e = document.createElement(tag);
+  if (props) {
+    for (const [k, v] of Object.entries(props)) {
+      if (v == null || v === false) continue;
+      if (k === 'class') e.className = v;
+      else if (k === 'value') e.value = v;
+      else if (k === 'style') e.setAttribute('style', v);
+      else if (k.startsWith('on') && typeof v === 'function') e.addEventListener(k.slice(2), v);
+      else e.setAttribute(k, v === true ? '' : String(v));
+    }
+  }
+  for (const k of kids.flat(Infinity)) {
+    if (k == null || k === false) continue;
+    e.append(k instanceof Node ? k : String(k));
+  }
+  return e;
+}
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.hidden = false;
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => { t.hidden = true; }, 2600);
+}
+
+/* =========================================================================
+ * GitHub（データ用の非公開リポジトリ）
+ * ========================================================================= */
+let cfg = null; // { token, repo }
+function b64encode(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+function b64decode(b64) {
+  const bin = atob(b64.replace(/\s/g, ''));
+  return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
+}
+async function gh(method, url, body) {
+  const res = await fetch(API + url, {
+    method,
+    cache: 'no-store', // API 応答はブラウザに 60 秒キャッシュされるため、古い sha を掴まないよう無効化
+    headers: {
+      'Accept': 'application/vnd.github+json',
+      'Authorization': 'Bearer ' + cfg.token,
+      'X-GitHub-Api-Version': '2022-11-28',
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  let json = null;
+  try { json = await res.json(); } catch {}
+  if (!res.ok) {
+    const err = new Error((json && json.message) || res.statusText || 'HTTP ' + res.status);
+    err.status = res.status;
+    throw err;
+  }
+  return json;
+}
+const contentsUrl = (path) => `/repos/${cfg.repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}`;
+// 1 ファイルを読む。1MB を超えると contents API が中身を返さないので blob API で取り直す
+async function readFile(path) {
+  const f = await gh('GET', contentsUrl(path));
+  let b64 = f.content;
+  if (!b64 && f.sha && f.size > 0) b64 = (await gh('GET', `/repos/${cfg.repo}/git/blobs/${f.sha}`)).content;
+  return { text: b64 ? b64decode(b64) : '', sha: f.sha };
+}
+async function listDir(path) {
+  try {
+    const r = await gh('GET', contentsUrl(path));
+    return Array.isArray(r) ? r : [];
+  } catch (e) {
+    if (e.status === 404) return [];
+    throw e;
+  }
+}
+const putFile = (path, text, sha, message) => gh('PUT', contentsUrl(path), { message, content: b64encode(text), ...(sha ? { sha } : {}) });
+// sha が同じなら端末に保存した中身を使い、違えば取り直す
+async function readCached(path, sha) {
+  const c = await idb.get('files', path);
+  if (c && sha && c.sha === sha) return c.text;
+  const f = await readFile(path);
+  await idb.set('files', path, { sha: f.sha, text: f.text });
+  return f.text;
+}
+function explain(e) {
+  if (e instanceof TypeError) return 'GitHub に接続できません（オフライン？）';
+  if (e instanceof SyntaxError) return 'データの JSON が壊れています';
+  switch (e.status) {
+    case 401: return 'トークンが無効か期限切れです';
+    case 403: return 'トークンの権限が足りません（Contents: Read and write が必要）';
+    case 404: return 'リポジトリかファイルが見つかりません';
+    default: return e.message || String(e);
+  }
+}
+
+/* =========================================================================
+ * 教材（packs/）
+ * SUBJECTS: [{ id, title, decks: [{id, title, subtitle, sets: [{id, number, cards: [id]}]}] }]
+ * ========================================================================= */
+let SUBJECTS = [];
+const CARDS = new Map();
+function applyPacks(files) {
+  // files: { path: text }。index.json がどのファイルを読むかを決める
+  SUBJECTS = [];
+  CARDS.clear();
+  const index = JSON.parse(files['packs/index.json'] || '{"subjects":[]}');
+  for (const s of index.subjects || []) {
+    const subject = { id: s.id, title: s.title, decks: [] };
+    for (const f of s.files || []) {
+      const text = files['packs/' + f];
+      if (!text) continue;
+      for (const c of JSON.parse(text).cards || []) CARDS.set(c.id, { ...c, subject: s.id });
+    }
+    if (s.decks && files['packs/' + s.decks]) subject.decks = JSON.parse(files['packs/' + s.decks]).decks || [];
+    SUBJECTS.push(subject);
+  }
+}
+async function loadPacks() {
+  const top = await listDir('packs');
+  const idx = top.find((f) => f.name === 'index.json');
+  if (!idx) throw Object.assign(new Error('packs/index.json がありません'), { status: 404 });
+  const files = { 'packs/index.json': await readCached('packs/index.json', idx.sha) };
+  const index = JSON.parse(files['packs/index.json']);
+  const want = new Set();
+  for (const s of index.subjects || []) for (const f of [...(s.files || []), s.decks].filter(Boolean)) want.add('packs/' + f);
+  const dirs = [...new Set([...want].map((p) => p.slice(0, p.lastIndexOf('/'))))];
+  const shas = {};
+  for (const d of dirs) for (const f of await listDir(d)) shas[f.path] = f.sha;
+  for (const p of want) if (shas[p]) files[p] = await readCached(p, shas[p]);
+  return files;
+}
+
+/* =========================================================================
+ * 記録（records/）
+ * records/YYYY-MM.json: { version: 1, events: [...] }  足していくだけで書き換えない
+ *   採点 { id, at, c: カードID, d: 'r'（英→日）| 'p'（日→英）, g: 1〜4 }
+ *   取り消し { id, at, u: 取り消した採点の id }
+ * records/settings.json: { version: 1, newPerDay, direction, active: { 科目: コース }, rate, updatedAt }
+ * ========================================================================= */
+const EVENTS = new Map(); // id → event（GitHub にあるものと、まだ送っていないもの）
+let pending = loadJSON(KEY.pending, []);
+const DEFAULT_SETTINGS = { version: 1, newPerDay: 20, direction: 'r', active: {}, rate: 0.95, updatedAt: '' };
+let settings = { ...DEFAULT_SETTINGS, ...loadJSON(KEY.settings, {}) };
+const monthOf = (at) => dayKey(at).slice(0, 7);
+const recordPath = (m) => `records/${m}.json`;
+const recordsText = (events) => JSON.stringify({ version: 1, events }, null, 0).replace('"events":[', '"events":[\n').replace(/},{/g, '},\n{') + '\n';
+
+async function loadRecords() {
+  const list = await listDir('records');
+  const files = {};
+  for (const f of list) {
+    if (/^\d{4}-\d{2}\.json$/.test(f.name) || f.name === 'settings.json') files[f.path] = await readCached(f.path, f.sha);
+  }
+  return files;
+}
+function applyRecords(files) {
+  EVENTS.clear();
+  for (const [path, text] of Object.entries(files)) {
+    if (path === 'records/settings.json') {
+      const remote = JSON.parse(text);
+      if ((remote.updatedAt || '') >= (settings.updatedAt || '')) { settings = { ...DEFAULT_SETTINGS, ...remote }; saveJSON(KEY.settings, settings); }
+      continue;
+    }
+    for (const e of JSON.parse(text).events || []) EVENTS.set(e.id, e);
+  }
+  for (const e of pending) EVENTS.set(e.id, e);
+  recompute();
+}
+
+/* =========================================================================
+ * 間隔をあけた復習（決まった規則。AI は使わない）
+ * 1 もう一度：今日もう一度   2 難しい：同じ段のまま短めに
+ * 3 できた：次の段へ（1→3→7→14→30→60→120→240 日）   4 簡単：二段先へ
+ * その日に「もう一度」だったカードは、あとで思い出せても翌日にもう一度出す
+ * ========================================================================= */
+const newState = () => ({ step: -1, due: null, reps: 0, lapses: 0, first: null, last: null, failedOn: null });
+function applyGrade(st, g, day) {
+  const s = { ...st, reps: st.reps + 1, last: day, first: st.first || day };
+  const failedToday = st.failedOn === day;
+  if (g === 1) {
+    if (st.step >= 1) s.lapses = st.lapses + 1;
+    s.step = 0;
+    s.due = day;
+    s.failedOn = day;
+  } else if (g === 2) {
+    s.step = Math.max(0, st.step);
+    s.due = addDays(day, failedToday ? 1 : Math.max(1, Math.floor(STEPS[s.step] / 2)));
+  } else if (failedToday) {
+    s.step = g === 4 ? 1 : 0;
+    s.due = addDays(day, STEPS[s.step]);
+  } else {
+    s.step = Math.min(STEPS.length - 1, st.step + (g === 4 ? 2 : 1));
+    s.due = addDays(day, STEPS[s.step]);
+  }
+  return s;
+}
+function computeStates(events) {
+  const undone = new Set();
+  for (const e of events) if (e.u) undone.add(e.u);
+  const sorted = events.filter((e) => e.c && !undone.has(e.id)).sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : a.id < b.id ? -1 : 1));
+  const states = new Map();
+  for (const e of sorted) {
+    const k = e.c + '|' + e.d;
+    states.set(k, applyGrade(states.get(k) || newState(), e.g, dayKey(e.at)));
+  }
+  return states;
+}
+let STATES = new Map();
+function recompute() { STATES = computeStates([...EVENTS.values()]); }
+const stateOf = (cardId, dir = settings.direction) => STATES.get(cardId + '|' + dir);
+function nextLabel(st, g) {
+  const day = dayKey();
+  const n = applyGrade(st || newState(), g, day);
+  const d = daysBetween(day, n.due);
+  return d <= 0 ? '今日' : d === 1 ? '明日' : d < 30 ? `${d}日後` : d < 365 ? `${Math.round(d / 30)}か月後` : '1年後';
+}
+
+/* =========================================================================
+ * 今日の量・コースの進み具合
+ * ========================================================================= */
+function subjectCards(subject) {
+  const ids = new Set();
+  for (const d of subject.decks) for (const s of d.sets) for (const id of s.cards) ids.add(id);
+  if (!subject.decks.length) for (const [id, c] of CARDS) if (c.subject === subject.id) ids.add(id);
+  return ids;
+}
+function todayInfo(subject) {
+  const day = dayKey();
+  const dir = settings.direction;
+  const due = [];
+  let carried = 0;
+  let introduced = 0;
+  for (const id of subjectCards(subject)) {
+    const st = stateOf(id, dir);
+    if (!st) continue;
+    if (st.first === day) introduced++;
+    if (st.due && st.due <= day && CARDS.has(id)) {
+      due.push(id);
+      if (st.due < day) carried++;
+    }
+  }
+  due.sort((a, b) => (stateOf(a).due < stateOf(b).due ? -1 : 1));
+  const deck = activeDeck(subject);
+  const quota = Math.max(0, (Number(settings.newPerDay) || 0) - introduced);
+  const fresh = [];
+  if (deck && quota) {
+    outer: for (const s of deck.sets) for (const id of s.cards) {
+      if (!stateOf(id, dir) && CARDS.has(id) && !fresh.includes(id)) { fresh.push(id); if (fresh.length >= quota) break outer; }
+    }
+  }
+  return { due, carried, fresh, introduced, deck };
+}
+function activeDeck(subject) {
+  const id = settings.active && settings.active[subject.id];
+  return subject.decks.find((d) => d.id === id) || subject.decks[0] || null;
+}
+function progressOf(ids) {
+  let seen = 0, learned = 0;
+  for (const id of ids) {
+    const st = stateOf(id);
+    if (!st) continue;
+    seen++;
+    if (st.step >= LEARNED_STEP) learned++;
+  }
+  return { total: ids.length, seen, learned };
+}
+
+/* =========================================================================
+ * 保存（Todo と同じ考え方：まず端末にため、まとめて GitHub に書く。
+ * 書くときに最新を読み直して足すので、ほかの端末の記録を消さない）
+ * ========================================================================= */
+let syncing = false;
+let syncTimer = null;
+let syncState = '';
+function addEvents(evs) {
+  for (const e of evs) { pending.push(e); EVENTS.set(e.id, e); }
+  saveJSON(KEY.pending, pending);
+  recompute();
+  setSync('dirty');
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(syncNow, 2500);
+}
+async function syncNow() {
+  if (syncing || !cfg || !pending.length) return;
+  syncing = true;
+  setSync('saving');
+  try {
+    const byMonth = new Map();
+    for (const e of pending) {
+      const m = monthOf(e.at);
+      if (!byMonth.has(m)) byMonth.set(m, []);
+      byMonth.get(m).push(e);
+    }
+    for (const [m, evs] of byMonth) {
+      const path = recordPath(m);
+      for (let tries = 0; ; tries++) {
+        let cur = { events: [] };
+        let sha = null;
+        try {
+          const f = await readFile(path);
+          cur = JSON.parse(f.text || '{"events":[]}');
+          sha = f.sha;
+        } catch (e) { if (e.status !== 404) throw e; }
+        const have = new Set((cur.events || []).map((e) => e.id));
+        const merged = [...(cur.events || []), ...evs.filter((e) => !have.has(e.id))]
+          .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : a.id < b.id ? -1 : 1));
+        try {
+          const text = recordsText(merged);
+          const r = await putFile(path, text, sha, `study: 記録 ${m}（${evs.length}件）`);
+          await idb.set('files', path, { sha: r.content.sha, text });
+          for (const e of merged) EVENTS.set(e.id, e);
+          break;
+        } catch (e) {
+          // 409: ほかの端末が先に書いた / 422: sha が合わない → 読み直して足し直す
+          if ((e.status === 409 || e.status === 422) && tries < 3) continue;
+          throw e;
+        }
+      }
+      const sent = new Set(evs.map((e) => e.id));
+      pending = pending.filter((e) => !sent.has(e.id));
+      saveJSON(KEY.pending, pending);
+    }
+    recompute();
+    setSync('saved');
+  } catch (e) {
+    setSync(e instanceof TypeError ? 'offline' : 'error', e);
+  } finally {
+    syncing = false;
+  }
+}
+async function saveSettings(patch) {
+  settings = { ...settings, ...patch, updatedAt: nowIso() };
+  saveJSON(KEY.settings, settings);
+  if (!cfg) return;
+  try {
+    let sha = null;
+    try { sha = (await readFile('records/settings.json')).sha; } catch (e) { if (e.status !== 404) throw e; }
+    const text = JSON.stringify(settings, null, 1) + '\n';
+    const r = await putFile('records/settings.json', text, sha, 'study: 設定');
+    await idb.set('files', 'records/settings.json', { sha: r.content.sha, text });
+  } catch (e) {
+    setSync(e instanceof TypeError ? 'offline' : 'error', e);
+  }
+}
+function setSync(state, err) {
+  syncState = state;
+  const time = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+  const text = {
+    loading: '読み込み中…', dirty: '未保存の記録あり', saving: '保存中…', saved: `保存済み ${time}`, fresh: `最新 ${time}`,
+    offline: 'オフライン（記録は端末に保存）', error: `エラー: ${err ? explain(err) : ''}`,
+  }[state] || '';
+  const s = $('sync');
+  s.textContent = text;
+  s.className = 'sync ' + state;
+  $('retryBtn').hidden = !(state === 'error' || state === 'offline');
+}
+
+/* =========================================================================
+ * 画面
+ * view: { type: 'home' } | { type: 'decks', subject } | { type: 'deck', subject, deck } | { type: 'session' } | { type: 'done' }
+ * ========================================================================= */
+let view = { type: 'home' };
+let session = null; // { subject, title, queue: [id], done: [], history: [{id, eventId}], revealed, back }
+function go(v) {
+  view = v;
+  render();
+  window.scrollTo(0, 0);
+}
+function setHeader(title, back) {
+  $('title').textContent = title;
+  document.title = title === 'きょう' ? '勉強' : title;
+  $('backBtn').hidden = !back;
+  $('backBtn').onclick = back || null;
+}
+function render() {
+  const c = $('content');
+  if (view.type === 'session') return renderSession();
+  if (view.type === 'done') return renderDone();
+  if (!SUBJECTS.length) {
+    setHeader('きょう');
+    c.replaceChildren(h('div', { class: 'empty' }, syncState === 'loading' || syncState === '' ? '教材を読み込んでいます…' : '教材がありません。データ用リポジトリの packs/index.json を確かめてください。'));
+    return;
+  }
+  if (view.type === 'decks') return renderDecks(SUBJECTS.find((s) => s.id === view.subject) || SUBJECTS[0]);
+  if (view.type === 'deck') {
+    const subject = SUBJECTS.find((s) => s.id === view.subject) || SUBJECTS[0];
+    const deck = subject.decks.find((d) => d.id === view.deck);
+    if (deck) return renderDeck(subject, deck);
+  }
+  renderHome();
+}
+
+function renderHome() {
+  setHeader('きょう');
+  const nodes = [];
+  for (const subject of SUBJECTS) {
+    const t = todayInfo(subject);
+    const total = t.due.length + t.fresh.length;
+    nodes.push(h('section', { class: 'card', 'data-subject': subject.id },
+      h('div', { class: 'row' }, h('h2', null, subject.title), h('span', { class: 'sp' }),
+        h('span', { class: 'badge' }, settings.direction === 'p' ? '日→英（言える）' : '英→日（わかる）')),
+      h('div', { class: 'stat' },
+        h('div', null, h('b', { class: 'n-due' }, t.due.length), h('span', null, '今日の復習' + (t.carried ? `（持ち越し ${t.carried}）` : ''))),
+        h('div', null, h('b', { class: 'n-new' }, t.fresh.length), h('span', null, `新しいカード（1日 ${settings.newPerDay}枚まで）`))),
+      t.deck ? h('p', { class: 'note' }, '進めているコース：', t.deck.title) : null,
+      h('div', { class: 'btn-row' },
+        h('button', { class: 'primary start', type: 'button', disabled: total === 0, onclick: () => startToday(subject) },
+          total ? `始める（${total}枚）` : '今日の分は終わりました'),
+        h('button', { class: 'to-decks', type: 'button', onclick: () => go({ type: 'decks', subject: subject.id }) }, 'コースを選ぶ'))));
+  }
+  $('content').replaceChildren(...nodes);
+}
+
+function renderDecks(subject) {
+  setHeader(subject.title, () => go({ type: 'home' }));
+  const active = activeDeck(subject);
+  const items = subject.decks.map((d) => {
+    const ids = [...new Set(d.sets.flatMap((s) => s.cards))];
+    const p = progressOf(ids);
+    return h('button', { class: 'item deck', type: 'button', 'data-deck': d.id, onclick: () => go({ type: 'deck', subject: subject.id, deck: d.id }) },
+      h('div', { class: 'sp' },
+        h('div', { class: 't' }, d.title, active && active.id === d.id ? h('span', { class: 'badge', style: 'margin-left:8px' }, '進めている') : null),
+        h('div', { class: 's' }, d.subtitle),
+        h('div', { class: 'bar' }, h('i', { style: `width:${p.total ? (100 * p.seen / p.total).toFixed(1) : 0}%` }))),
+      h('span', { class: 'n' }, `${p.seen}/${p.total}`));
+  });
+  $('content').replaceChildren(h('div', { class: 'list' }, items));
+}
+
+function renderDeck(subject, deck) {
+  setHeader(deck.title, () => go({ type: 'decks', subject: subject.id }));
+  const isActive = activeDeck(subject) && activeDeck(subject).id === deck.id;
+  const head = h('section', { class: 'card' },
+    h('p', { class: 'note', style: 'margin-top:0' }, deck.subtitle),
+    h('div', { class: 'btn-row' },
+      h('button', { class: isActive ? '' : 'primary', type: 'button', disabled: isActive, onclick: async () => {
+        await saveSettings({ active: { ...settings.active, [subject.id]: deck.id } });
+        toast('このコースから新しいカードを出します');
+        render();
+      } }, isActive ? '今このコースを進めています' : 'このコースを進める')));
+  const sets = deck.sets.map((s) => {
+    const p = progressOf(s.cards);
+    return h('button', { class: 'item set', type: 'button', 'data-set': s.id, onclick: () => startSet(subject, deck, s) },
+      h('div', { class: 'sp' },
+        h('div', { class: 't' }, `セット ${s.number}`),
+        h('div', { class: 's' }, `${s.cards.length}枚・定着 ${p.learned}`),
+        h('div', { class: 'bar' }, h('i', { style: `width:${p.total ? (100 * p.seen / p.total).toFixed(1) : 0}%` }))),
+      h('span', { class: 'n' }, `${p.seen}/${p.total}`));
+  });
+  $('content').replaceChildren(head, h('div', { class: 'list' }, sets));
+}
+
+/* ---------------- 復習 ---------------- */
+function startToday(subject) {
+  const t = todayInfo(subject);
+  startSession(subject, '今日の復習', [...t.due, ...t.fresh]);
+}
+function startSet(subject, deck, set) {
+  const day = dayKey();
+  const ids = set.cards.filter((id) => CARDS.has(id));
+  let queue = ids.filter((id) => { const st = stateOf(id); return !st || (st.due && st.due <= day); });
+  if (!queue.length) {
+    if (!confirm('このセットは今日の分がありません。全部をもう一度見直しますか？')) return;
+    queue = ids;
+  }
+  startSession(subject, `${deck.title} セット ${set.number}`, queue);
+}
+function startSession(subject, title, ids) {
+  if (!ids.length) return toast('今日の分は終わりました');
+  session = { subject: subject.id, title, queue: [...ids], done: [], history: [], revealed: false, again: new Set() };
+  go({ type: 'session' });
+}
+function currentCard() { return session && CARDS.get(session.queue[0]); }
+function renderSession() {
+  const card = currentCard();
+  if (!card) { go({ type: 'done' }); return; }
+  setHeader(session.title, () => endSession());
+  const dir = settings.direction;
+  const st = stateOf(card.id, dir);
+  const front = dir === 'p'
+    ? [h('div', { class: 'q ja' }, card.ja || '（意味なし）'), card.pos ? h('div', { class: 'pos' }, card.pos) : null]
+    : [h('div', { class: 'row' }, h('div', { class: 'q sp' }, card.term), h('button', { class: 'say', type: 'button', onclick: () => speak(card.term) }, '▶ 読む')),
+       card.pos ? h('div', { class: 'pos' }, card.pos) : null];
+  const back = session.revealed ? h('div', { class: 'a' },
+    dir === 'p' ? h('div', { class: 'row' }, h('div', { class: 'term sp' }, card.term), h('button', { class: 'say', type: 'button', onclick: () => speak(card.term) }, '▶ 読む'))
+      : h('div', { class: 'ja' }, card.ja || ''),
+    card.usage ? h('div', { class: 'usage' }, card.usage) : null,
+    card.ex ? h('div', { class: 'ex' },
+      h('div', { class: 'row' }, h('div', { class: 'en sp' }, card.ex), h('button', { class: 'say', type: 'button', onclick: () => speak(card.ex) }, '▶')),
+      card.exJa ? h('div', { class: 'tr' }, card.exJa) : null) : null,
+    card.col && card.col.length ? h('div', { class: 'col' }, card.col.map((x) => h('span', null, x))) : null,
+    (card.more || []).map((m) => h('div', { class: 'ex' }, h('div', { class: 'tr' }, m.ja || ''), m.ex ? h('div', { class: 'en' }, m.ex) : null, m.exJa ? h('div', { class: 'tr' }, m.exJa) : null))) : null;
+  const left = session.queue.length;
+  const top = h('div', { class: 'progress' },
+    h('span', null, `残り ${left}枚`),
+    session.history.length ? h('button', { class: 'undo', type: 'button', onclick: undo }, '↶ 戻す') : h('span'));
+  const labels = [['もう一度', 'g1'], ['難しい', 'g2'], ['できた', 'g3'], ['簡単', 'g4']];
+  const dock = h('div', { class: 'dock' }, h('div', { class: 'inner' },
+    session.revealed
+      ? labels.map(([t, cls], i) => h('button', { class: 'grade ' + cls, type: 'button', 'data-g': i + 1, onclick: () => grade(i + 1) }, t, h('small', null, nextLabel(st, i + 1))))
+      : h('button', { class: 'primary reveal', type: 'button', onclick: reveal }, '答えを見る')));
+  $('content').replaceChildren(h('div', { class: 'session' }, top, h('div', { class: 'face' }, front, back), dock));
+}
+function reveal() {
+  if (!session || session.revealed) return;
+  session.revealed = true;
+  renderSession();
+  const card = currentCard();
+  if (card && settings.direction === 'p') speak(card.term);
+}
+function grade(g) {
+  const card = currentCard();
+  if (!card || !session.revealed) return;
+  const e = { id: uid(), at: eventTime(), c: card.id, d: settings.direction, g };
+  addEvents([e]);
+  session.history.push({ id: card.id, eventId: e.id, from: [...session.queue] });
+  session.queue.shift();
+  if (g === 1) session.queue.splice(Math.min(session.queue.length, 4), 0, card.id); // 少しあとにもう一度
+  else session.done.push(card.id);
+  session.revealed = false;
+  renderSession();
+}
+function undo() {
+  const last = session && session.history.pop();
+  if (!last) return;
+  addEvents([{ id: uid(), at: eventTime(), u: last.eventId }]);
+  session.queue = last.from;
+  session.done = session.done.filter((id, i, a) => !(id === last.id && i === a.lastIndexOf(id)));
+  session.revealed = false;
+  renderSession();
+}
+function endSession() {
+  session = null;
+  syncNow();
+  go({ type: 'home' });
+}
+function renderDone() {
+  setHeader('おつかれさまでした', () => endSession());
+  const n = session ? new Set(session.done).size : 0;
+  $('content').replaceChildren(h('section', { class: 'card' },
+    h('h2', null, `${n}枚を学びました`),
+    h('p', { class: 'note' }, '記録は自動で保存します。次に出る日は、思い出せたかどうかで決まります。'),
+    h('div', { class: 'btn-row' }, h('button', { class: 'primary', type: 'button', onclick: endSession }, 'きょうの画面へ'))));
+  syncNow();
+}
+
+/* ---------------- 読み上げ（端末の英語音声） ---------------- */
+function pickVoice() {
+  const voices = (window.speechSynthesis && speechSynthesis.getVoices()) || [];
+  const en = voices.filter((v) => /^en[-_]/i.test(v.lang));
+  return en.find((v) => /en[-_]US/i.test(v.lang) && /Samantha|Google US English|Ava|Allison/i.test(v.name))
+    || en.find((v) => /en[-_]US/i.test(v.lang)) || en[0] || null;
+}
+function speak(text) {
+  if (!text) return;
+  if (!('speechSynthesis' in window)) return toast('この端末では読み上げできません');
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = 'en-US';
+  const v = pickVoice();
+  if (v) u.voice = v;
+  u.rate = Number(settings.rate) || 0.95;
+  speechSynthesis.speak(u);
+}
+
+/* ---------------- 設定 ---------------- */
+function openSettings() {
+  const sheet = $('sheet');
+  const num = h('input', { type: 'number', id: 'newPerDay', min: 0, max: 200, value: settings.newPerDay });
+  const dir = h('select', { id: 'direction' },
+    h('option', { value: 'r', selected: settings.direction === 'r' }, '英→日（見てわかる）'),
+    h('option', { value: 'p', selected: settings.direction === 'p' }, '日→英（自分で言える）'));
+  const rate = h('select', { id: 'rate' }, [0.75, 0.85, 0.95, 1.05].map((r) => h('option', { value: r, selected: Number(settings.rate) === r }, r === 0.95 ? 'ふつう' : r < 0.95 ? 'ゆっくり' + (r === 0.75 ? '（とても）' : '') : '速め')));
+  sheet.replaceChildren(
+    h('h2', { id: 'sheetTitle' }, '設定'),
+    h('div', { class: 'set-row' }, h('label', { for: 'newPerDay' }, '1日の新しいカード'), num),
+    h('div', { class: 'set-row' }, h('label', { for: 'direction' }, '練習の向き'), dir),
+    h('p', { class: 'note' }, '向きごとに記録を分けています。英→日は「見てわかる」、日→英は「自分で言える」かを確かめます。'),
+    h('div', { class: 'set-row' }, h('label', { for: 'rate' }, '読み上げの速さ'), rate),
+    h('div', { class: 'btn-row', style: 'margin-top:16px' },
+      h('button', { type: 'button', class: 'logout', onclick: logout }, '接続を解除'),
+      h('button', { type: 'button', class: 'primary save', onclick: async () => {
+        const n = Math.max(0, Math.min(200, Math.round(Number(num.value) || 0)));
+        closeSettings();
+        await saveSettings({ newPerDay: n, direction: dir.value, rate: Number(rate.value) });
+        render();
+      } }, '保存')));
+  $('backdrop').hidden = false;
+  sheet.hidden = false;
+  num.focus();
+}
+function closeSettings() { $('sheet').hidden = true; $('backdrop').hidden = true; }
+
+/* =========================================================================
+ * 接続
+ * ========================================================================= */
+function parseRepo(v) {
+  const parts = v.trim().replace(/^https?:\/\/github\.com\//, '').split('/').filter(Boolean);
+  if (parts.length < 2 || !parts.slice(0, 2).every((x) => /^[\w.-]+$/.test(x))) return null;
+  return parts.slice(0, 2).join('/');
+}
+function showSetup(bad = []) {
+  document.title = '';
+  $('app').hidden = true;
+  $('setup').hidden = false;
+  for (const id of ['repo', 'token']) $(id).classList.toggle('bad', bad.includes(id));
+}
+async function connect() {
+  const repo = parseRepo($('repo').value);
+  const token = $('token').value.trim();
+  const bad = [];
+  if (!repo) bad.push('repo');
+  if (!token) bad.push('token');
+  if (bad.length) return showSetup(bad);
+  cfg = { token, repo };
+  $('setup').classList.add('busy');
+  try {
+    const info = await gh('GET', `/repos/${repo}`);
+    if (!info.private) { cfg = null; console.warn('公開リポジトリには接続しない'); return showSetup(['repo']); }
+    store.set(KEY.token, token);
+    store.set(KEY.repo, repo);
+    await idb.set('kv', 'login', { token, repo });
+    try { if (window.PasswordCredential) navigator.credentials.store(new PasswordCredential({ id: repo, password: token, name: '勉強' })).catch(() => {}); } catch {}
+    try { navigator.storage?.persist?.().catch(() => {}); } catch {}
+    $('token').value = '';
+    await showApp();
+  } catch (e) {
+    cfg = null;
+    console.warn(explain(e));
+    showSetup(e.status === 401 || e.status === 403 ? ['token'] : e.status === 404 ? ['repo', 'token'] : ['repo', 'token']);
+  } finally {
+    $('setup').classList.remove('busy');
+  }
+}
+async function logout() {
+  if (pending.length && !confirm('まだ保存していない記録があります。接続を解除すると、この端末の未保存の記録は消えます。続けますか？')) return;
+  closeSettings();
+  for (const k of [KEY.token, KEY.repo, KEY.pending, KEY.files]) store.del(k);
+  await idb.del('kv', 'login');
+  await idb.clear('files');
+  cfg = null;
+  pending = [];
+  EVENTS.clear();
+  SUBJECTS = [];
+  CARDS.clear();
+  $('content').replaceChildren();
+  showSetup();
+}
+// 端末に残っているものですぐ描き、裏で GitHub から最新を取る
+async function showApp() {
+  $('setup').hidden = true;
+  $('app').hidden = false;
+  view = { type: 'home' }; // 毎日使うので、開いたら「きょう」から
+  const known = loadJSON(KEY.files, []);
+  if (known.length) {
+    const files = {};
+    for (const p of known) { const c = await idb.get('files', p); if (c) files[p] = c.text; }
+    try { applyPacks(files); applyRecords(Object.fromEntries(Object.entries(files).filter(([p]) => p.startsWith('records/')))); } catch (e) { console.warn(e); }
+  }
+  render();
+  await refresh();
+}
+async function refresh() {
+  setSync('loading');
+  try {
+    const packs = await loadPacks();
+    const records = await loadRecords();
+    saveJSON(KEY.files, [...Object.keys(packs), ...Object.keys(records)]);
+    applyPacks(packs);
+    applyRecords(records);
+    if (view.type !== 'session') render();
+    if (pending.length) await syncNow(); else setSync('fresh');
+  } catch (e) {
+    if (e.status === 401) { const token = cfg.token; cfg = null; showSetup(['token']); $('token').value = token; return; }
+    setSync(e instanceof TypeError ? 'offline' : 'error', e);
+    if (view.type !== 'session') render();
+  }
+}
+
+/* =========================================================================
+ * 操作
+ * ========================================================================= */
+$('setup').addEventListener('submit', (e) => { e.preventDefault(); connect(); });
+$('settingsBtn').addEventListener('click', openSettings);
+$('backdrop').addEventListener('click', closeSettings);
+$('retryBtn').addEventListener('click', () => (pending.length ? syncNow() : refresh()));
+window.addEventListener('online', () => { if (cfg) syncNow(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') syncNow(); });
+document.addEventListener('keydown', (e) => {
+  if (e.target.closest('input, select, textarea') || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (!$('sheet').hidden) { if (e.key === 'Escape') closeSettings(); return; }
+  if (view.type !== 'session' || !session) return;
+  if (!session.revealed && (e.key === ' ' || e.key === 'Enter')) { e.preventDefault(); reveal(); return; }
+  if (session.revealed && /^[1-4]$/.test(e.key)) { e.preventDefault(); grade(Number(e.key)); return; }
+  if (session.revealed && (e.key === ' ' || e.key === 'Enter')) { e.preventDefault(); grade(3); return; }
+  if (e.key === 's' || e.key === 'S') { const c = currentCard(); if (c) speak(settings.direction === 'p' && !session.revealed ? '' : c.term); return; }
+  if (e.key === 'u' || e.key === 'U' || e.key === 'Backspace') { e.preventDefault(); undo(); return; }
+  if (e.key === 'Escape') endSession();
+});
+
+(async () => {
+  try { localStorage.setItem('study.probe', '1'); localStorage.removeItem('study.probe'); } catch (e) { console.warn('この画面では端末に保存できません', e); }
+  let token = store.get(KEY.token);
+  let repo = store.get(KEY.repo);
+  if (!token || !repo) {
+    const saved = await idb.get('kv', 'login');
+    if (saved && saved.token && saved.repo) { token = saved.token; repo = saved.repo; store.set(KEY.token, token); store.set(KEY.repo, repo); }
+  }
+  if (token && repo) { cfg = { token, repo }; await showApp(); } else showSetup();
+  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+})();
+</script>
+</body>
+</html>
