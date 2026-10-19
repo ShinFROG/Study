@@ -470,10 +470,10 @@ function nextLabel(st, g) {
 /* =========================================================================
  * 今日の量・コースの進み具合
  * ========================================================================= */
+// 復習はコースに入っていないカード（同じ意味の重複として道から外したものなど）も含め、科目の全カードから出す
 function subjectCards(subject) {
-  const ids = new Set();
-  for (const d of subject.decks) for (const s of d.sets) for (const id of s.cards) ids.add(id);
-  if (!subject.decks.length) for (const [id, c] of CARDS) if (c.subject === subject.id) ids.add(id);
+  const ids = [];
+  for (const [id, c] of CARDS) if (c.subject === subject.id) ids.push(id);
   return ids;
 }
 function todayInfo(subject) {
@@ -492,19 +492,32 @@ function todayInfo(subject) {
     }
   }
   due.sort((a, b) => (stateOf(a).due < stateOf(b).due ? -1 : 1));
-  const deck = activeDeck(subject);
+  // 新しいカードは、選んだコースから順に。そのコースを学び終えたら、次のコースへそのまま進む
   const quota = Math.max(0, (Number(settings.newPerDay) || 0) - introduced);
   const fresh = [];
-  if (deck && quota) {
-    outer: for (const s of deck.sets) for (const id of s.cards) {
-      if (!stateOf(id, dir) && CARDS.has(id) && !fresh.includes(id)) { fresh.push(id); if (fresh.length >= quota) break outer; }
+  const seen = new Set();
+  if (quota) {
+    outer: for (const d of decksFrom(subject)) for (const s of d.sets) for (const id of s.cards) {
+      if (!stateOf(id, dir) && CARDS.has(id) && !seen.has(id)) { seen.add(id); fresh.push(id); if (fresh.length >= quota) break outer; }
     }
   }
-  return { due, carried, fresh, introduced, deck };
+  return { due, carried, fresh, introduced, deck: currentDeck(subject) };
 }
+// 選んだコース（設定）。無ければ最初のコース
 function activeDeck(subject) {
   const id = settings.active && settings.active[subject.id];
   return subject.decks.find((d) => d.id === id) || subject.decks[0] || null;
+}
+// 選んだコースとそれより後のコース（新しいカードを出す順）
+function decksFrom(subject) {
+  const start = subject.decks.indexOf(activeDeck(subject));
+  return start < 0 ? [] : subject.decks.slice(start);
+}
+// 今進めているコース：選んだコースから順に見て、まだ見ていないカードが残っている最初のコース
+function currentDeck(subject) {
+  const dir = settings.direction;
+  for (const d of decksFrom(subject)) for (const s of d.sets) for (const id of s.cards) if (!stateOf(id, dir) && CARDS.has(id)) return d;
+  return activeDeck(subject);
 }
 function progressOf(ids) {
   let seen = 0, learned = 0;
@@ -665,7 +678,7 @@ function renderHome() {
 
 function renderDecks(subject) {
   setHeader(subject.title, () => go({ type: 'home' }));
-  const active = activeDeck(subject);
+  const active = currentDeck(subject);
   const items = subject.decks.map((d) => {
     const ids = [...new Set(d.sets.flatMap((s) => s.cards))];
     const p = progressOf(ids);
@@ -681,13 +694,14 @@ function renderDecks(subject) {
 
 function renderDeck(subject, deck) {
   setHeader(deck.title, () => go({ type: 'decks', subject: subject.id }));
-  const isActive = activeDeck(subject) && activeDeck(subject).id === deck.id;
+  const cur = currentDeck(subject);
+  const isActive = cur && cur.id === deck.id;
   const head = h('section', { class: 'card' },
     h('p', { class: 'note', style: 'margin-top:0' }, deck.subtitle),
     h('div', { class: 'btn-row' },
       h('button', { class: isActive ? '' : 'primary', type: 'button', disabled: isActive, onclick: async () => {
         await saveSettings({ active: { ...settings.active, [subject.id]: deck.id } });
-        toast('このコースから新しいカードを出します');
+        toast('このコースから新しいカードを出します（学び終えたら次のコースへ進みます）');
         render();
       } }, isActive ? '今このコースを進めています' : 'このコースを進める')));
   const sets = deck.sets.map((s) => {
